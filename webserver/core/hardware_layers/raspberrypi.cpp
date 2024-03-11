@@ -28,7 +28,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
-#include <pigpio.h>
+#include <pigpiod_if2.h>
 #include <pthread.h>
 
 #include "ladder.h"
@@ -61,24 +61,26 @@ int outBufferPinMask[MAX_OUTPUT] =	{ 4, 8, 7, 20 };
 //output of the RaspberryPi
 int analogOutBufferPinMask[MAX_ANALOG_OUT] = {  };
 
+int pi { 0 };
+
 //-----------------------------------------------------------------------------
 // This function is called by the main OpenPLC routine when it is initializing.
 // Hardware initialization procedures should be here.
 //-----------------------------------------------------------------------------
 void initializeHardware()
 {
-	gpioInitialise();
-	//piHiPri(99);
+	pi = pigpio_start(0, 0);
+	if (pi < 0) return;
 
 	//set pins as input
 	for (int i = 0; i < MAX_INPUT; i++)
 	{
 	    if (pinNotPresent(ignored_bool_inputs, ARRAY_SIZE(ignored_bool_inputs), inBufferPinMask[i]))
 	    {
-		    gpioSetMode(inBufferPinMask[i], PI_INPUT);
+		    set_mode(pi, inBufferPinMask[i], PI_INPUT);
 		    if (i != 0 && i != 1) //pull down can't be enabled on the first two pins
 		    {
-			    gpioSetPullUpDown(inBufferPinMask[i], PI_PUD_DOWN); //pull down enabled
+			    set_pull_up_down(pi, inBufferPinMask[i], PI_PUD_DOWN); //pull down enabled
 		    }
 	    }
 	}
@@ -87,15 +89,15 @@ void initializeHardware()
 	for (int i = 0; i < MAX_OUTPUT; i++)
 	{
 	    if (pinNotPresent(ignored_bool_outputs, ARRAY_SIZE(ignored_bool_outputs), outBufferPinMask[i]))
-	    	gpioSetMode(outBufferPinMask[i], PI_OUTPUT);
+	    	set_mode(pi, outBufferPinMask[i], PI_OUTPUT);
 	}
 
 	//set PWM pins as output
 	for (int i = 0; i < MAX_ANALOG_OUT; i++)
 	{
 	    if (pinNotPresent(ignored_int_outputs, ARRAY_SIZE(ignored_int_outputs), analogOutBufferPinMask[i])) {
-    		gpioSetMode(analogOutBufferPinMask[i], PI_ALT5);
-		gpioSetPWMrange(analogOutBufferPinMask[i], 1024);
+    		set_mode(pi, analogOutBufferPinMask[i], PI_ALT5);
+		set_PWM_range(pi, analogOutBufferPinMask[i], 1024);
 	    }
 	}
 }
@@ -106,7 +108,7 @@ void initializeHardware()
 //-----------------------------------------------------------------------------
 void finalizeHardware()
 {
-	gpioTerminate();
+	pigpio_stop(pi);
 }
 
 //-----------------------------------------------------------------------------
@@ -116,13 +118,14 @@ void finalizeHardware()
 //-----------------------------------------------------------------------------
 void updateBuffersIn()
 {
+	if (pi < 0) return;
 	pthread_mutex_lock(&bufferLock); //lock mutex
 
 	//INPUT
 	for (int i = 0; i < MAX_INPUT; i++)
 	{
 	    if (pinNotPresent(ignored_bool_inputs, ARRAY_SIZE(ignored_bool_inputs), inBufferPinMask[i]))
-    		if (bool_input[i/8][i%8] != NULL) *bool_input[i/8][i%8] = gpioRead(inBufferPinMask[i]);
+    		if (bool_input[i/8][i%8] != NULL) *bool_input[i/8][i%8] = gpio_read(pi, inBufferPinMask[i]);
 	}
 
 	pthread_mutex_unlock(&bufferLock); //unlock mutex
@@ -135,20 +138,21 @@ void updateBuffersIn()
 //-----------------------------------------------------------------------------
 void updateBuffersOut()
 {
+	if (pi < 0) return;
 	pthread_mutex_lock(&bufferLock); //lock mutex
 
 	//OUTPUT
 	for (int i = 0; i < MAX_OUTPUT; i++)
 	{
 	    if (pinNotPresent(ignored_bool_outputs, ARRAY_SIZE(ignored_bool_outputs), outBufferPinMask[i]))
-    		if (bool_output[i/8][i%8] != NULL) gpioWrite(outBufferPinMask[i], *bool_output[i/8][i%8]);
+    		if (bool_output[i/8][i%8] != NULL) gpio_write(pi, outBufferPinMask[i], *bool_output[i/8][i%8]);
 	}
 
 	//ANALOG OUT (PWM)
 	for (int i = 0; i < MAX_ANALOG_OUT; i++)
 	{
 	    if (pinNotPresent(ignored_int_outputs, ARRAY_SIZE(ignored_int_outputs), i))
-    		if (int_output[i] != NULL) gpioPWM(analogOutBufferPinMask[i], (*int_output[i] / 64));
+    		if (int_output[i] != NULL) set_PWM_dutycycle(pi, analogOutBufferPinMask[i], (*int_output[i] / 64));
 	}
 
 	pthread_mutex_unlock(&bufferLock); //unlock mutex
