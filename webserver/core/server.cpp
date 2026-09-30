@@ -213,6 +213,7 @@ void *handleConnections(void *arguments)
     int *args = (int *)arguments;
     int client_fd = args[0];
     int protocol_type = args[1];
+    free(args);
     unsigned char buffer[NET_BUFFER_SIZE];
     int messageSize;
     bool *run_server;
@@ -295,17 +296,32 @@ void startServer(uint16_t port, int protocol_type)
 
         else
         {
-            int arguments[2];
+            // Each thread gets its own copy of the arguments. A stack array
+            // here is reused by the next accept, and a thread that has not
+            // read it yet picks up the next client's fd: that client ends up
+            // with two threads splitting its byte stream, and this one with
+            // none, so its requests are never answered.
+            int *arguments = (int *)malloc(2 * sizeof(int));
             pthread_t thread;
             int ret = -1;
             sprintf(log_msg, "Server: Client accepted! Creating thread for the new client ID: %d...\n", client_fd);
             log(log_msg);
+            if (arguments == NULL)
+            {
+                close(client_fd);
+                continue;
+            }
             arguments[0] = client_fd;
             arguments[1] = protocol_type;
             ret = pthread_create(&thread, NULL, handleConnections, (void*)arguments);
             if (ret==0) 
             {
                 pthread_detach(thread);
+            }
+            else
+            {
+                free(arguments);
+                close(client_fd);
             }
         }
     }
