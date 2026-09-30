@@ -80,7 +80,7 @@ IEC_BOOL mb_coils[MAX_COILS];
 IEC_UINT mb_input_regs[MAX_INP_REGS];
 IEC_UINT mb_holding_regs[MAX_HOLD_REGS];
 
-int MessageLength;
+thread_local int MessageLength;
 
 #include "debug.h"
 
