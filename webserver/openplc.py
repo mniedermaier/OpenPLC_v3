@@ -85,6 +85,27 @@ class runtime:
         if (self.status() == "Stopped"):
             self.theprocess = subprocess.Popen(['./core/openplc'])  # XXX: iPAS
             self.runtime_status = "Running"
+            self._wait_for_control_socket()
+
+    def _wait_for_control_socket(self, timeout=30):
+        # The runtime opens Modbus, DNP3, EtherNet/IP and S7 only when told to
+        # over its control socket, and every caller sends those commands right
+        # after start_runtime(). A fixed one-second sleep was not enough on a
+        # loaded Raspberry Pi Zero: the first command failed, _rpc() marked the
+        # runtime "Stopped" and every later command was skipped, so the PLC ran
+        # with no protocol open and the UI showed it as stopped.
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if self.theprocess.poll() is not None:
+                print('Runtime exited before its control socket opened')
+                self.runtime_status = "Stopped"
+                return
+            try:
+                with socket.create_connection(('localhost', 43628), timeout=1):
+                    return
+            except OSError:
+                time.sleep(0.2)
+        print(f'Runtime control socket not open after {timeout} s')
 
     def _rpc(self, msg, timeout=1000):
         data = ""
