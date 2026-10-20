@@ -49,6 +49,11 @@ int offset_do = 0;
 int offset_ai = 0;
 int offset_ao = 0;
 
+// Points per type in the outstation database (database_size in dnp3.cfg).
+// update_vals() only builds updates for indices below it: opendnp3 drops the
+// rest anyway, after the work of building them.
+int dnp3_db_size = 10;
+
 using namespace std;
 using namespace opendnp3;
 using namespace openpal;
@@ -208,26 +213,26 @@ protected:
 void update_vals(std::shared_ptr<IOutstation> outstation){
     UpdateBuilder builder;
     // Update Discrete input (Binary input) - changed to support offsets (yurgen1975)
-    for(int i = offset_di; i < MAX_DISCRETE_INPUT; i++) {
+    for(int i = offset_di; i < MAX_DISCRETE_INPUT && i - offset_di < dnp3_db_size; i++) {
         builder.Update(Binary((bool)(*bool_input[i/8][i%8])), i-offset_di);
     }
 
     // Update Coils (Binary Output) - changed to support offsets (yurgen1975)
-    for(int i = offset_do; i < MAX_COILS; i++) {
+    for(int i = offset_do; i < MAX_COILS && i - offset_do < dnp3_db_size; i++) {
         builder.Update(BinaryOutputStatus((bool)(*bool_output[i/8][i%8])), i-offset_do);
     }    
 
     // Update Input Registers (Analog Input) - changed to support offsets (yurgen1975)
-    for (int i = offset_ai; i < MAX_INP_REGS; i++) {
+    for (int i = offset_ai; i < MAX_INP_REGS && i - offset_ai < dnp3_db_size; i++) {
         builder.Update(Analog((int)(*int_input[i])), i-offset_ai);
     }
     
     // Update Holding Registers (Analog Output) - changed to support offsets (yurgen1975)
-    for (int i = offset_ao; i < MIN_16B_RANGE; i++) {
+    for (int i = offset_ao; i < MIN_16B_RANGE && i - offset_ao < dnp3_db_size; i++) {
         builder.Update(AnalogOutputStatus((int)(*int_output[i])), i-offset_ao);
     }
     // Update Holding registers for memory
-    for (int i = MIN_16B_RANGE; i < MAX_16B_RANGE; i++) {
+    for (int i = MIN_16B_RANGE; i < MAX_16B_RANGE && i < dnp3_db_size; i++) {
         if(int_memory[i - MIN_16B_RANGE] != NULL)
             builder.Update(
                     AnalogOutputStatus((int)(*int_memory[i - MIN_16B_RANGE])),
@@ -235,7 +240,7 @@ void update_vals(std::shared_ptr<IOutstation> outstation){
             );
     } 
     // Update Holding registers for 32 b memory
-    for (int i = MIN_32B_RANGE; i < MAX_32B_RANGE; i++) {
+    for (int i = MIN_32B_RANGE; i < MAX_32B_RANGE && i < dnp3_db_size; i++) {
         if(dint_memory[i - MIN_32B_RANGE] != NULL)
             builder.Update(
                     AnalogOutputStatus((int)(*dint_memory[i - MIN_32B_RANGE])),
@@ -244,7 +249,7 @@ void update_vals(std::shared_ptr<IOutstation> outstation){
     } 
     // Update Holding registers for 64 b memory
     for (int i = MIN_64B_RANGE; 
-         (i < MAX_64B_RANGE && 
+         (i < MAX_64B_RANGE && i < dnp3_db_size && 
             i - MIN_64B_RANGE < sizeof(lint_memory) / sizeof(lint_memory[0])); 
          i++) {
         if(lint_memory[i - MIN_64B_RANGE] != NULL)
@@ -274,8 +279,9 @@ OutstationStackConfig create_config() {
                 token = trim(token);
                 if (token == "database_size") {
                     getline(iss, token, '=');
+                    dnp3_db_size = atoi(token.c_str());
                     return OutstationStackConfig(
-                               DatabaseSizes::AllTypes(atoi(token.c_str()))
+                               DatabaseSizes::AllTypes(dnp3_db_size)
                            );
                 }
                 else 
