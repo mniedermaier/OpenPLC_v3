@@ -584,11 +584,24 @@ def request_loader(request):
         return
 
 
+# Log a user out after five minutes without a request.
+SESSION_IDLE_SECONDS = 300
+
 @app.before_request
 def before_request():
-    flask.session.permanent = True
-    app.permanent_session_lifetime = datetime.timedelta(minutes=5)
-    flask.session.modified = True
+    # This used to make the session cookie permanent, with an Expires date five
+    # minutes ahead of the server's clock. A CybICS board has no real-time
+    # clock and is usually offline, so its clock can lag by hours; browsers
+    # then got a cookie that had already expired, dropped it, and every login
+    # bounced back to the login page. The cookie now lasts for the browser
+    # session, and the idle timeout is kept here, on the monotonic clock,
+    # which no wrong or jumping wall clock affects.
+    now = time.monotonic()
+    last_seen = flask.session.get('last_seen')
+    if last_seen is not None and not 0 <= now - last_seen <= SESSION_IDLE_SECONDS:
+        flask_login.logout_user()
+        flask.session.clear()
+    flask.session['last_seen'] = now
         
 @app.route('/')
 def index():
